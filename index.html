@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Stripe test</title>
+<style>
+/* minimono.css — the house style's base: tokens, type, the two-pane layout,
+   the windowed overlay, and flat native controls.
+   Targets two screens: MacBook Air 15" (1710×1107, 2×) and Dell P2423D
+   (2560×1440, 1×). Every line is 1px — half-pixels vanish on the Dell.     */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
+:root{
+  color-scheme: light dark;            /* native controls + scrollbars follow the theme */
+  --ground:#EEF1F4; --wall:#ffffff;
+  --ink:#0a0a0b; --ink-soft:#5F6368; --muted:#9c9ca3;
+  --hair:rgba(10,10,12,.13); --hair-soft:rgba(10,10,12,.08);
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",system-ui,sans-serif;
+  --pane-l:25%;                        /* the left pane is one quarter, always */
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --ground:#000000; --wall:#161618; --ink:#f6f6f8; --ink-soft:#a0a0a8; --muted:#67676f;
+  --hair:rgba(255,255,255,.16); --hair-soft:rgba(255,255,255,.09);
+}}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --ground:#000000; --wall:#161618; --ink:#f6f6f8; --ink-soft:#a0a0a8; --muted:#67676f;
+  --hair:rgba(255,255,255,.16); --hair-soft:rgba(255,255,255,.09);
+}
+:root[data-theme="light"]{ color-scheme: light; }
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
+*,*::before,*::after{ box-sizing:border-box; }
+html,body{ margin:0; height:100%; overflow:hidden; }
+body{
+  background:var(--ground); color:var(--ink);
+  font:16px/1.5 var(--sans); -webkit-font-smoothing:antialiased;
+  font-variant-numeric:tabular-nums;
+}
+:focus, :focus-visible{ outline:none; }
+/* focus shows only after Tab (minimono.js sets .kbd-nav; any click clears it),
+   as a thin grey line — never a bright ring, never from Shift or a click */
+html.kbd-nav :focus-visible{ outline:1px solid var(--muted); outline-offset:3px; border-radius:6px; }
+/* text selection keeps the system highlight — never restyle ::selection */
+a{ color:inherit; text-decoration:none; }
+/* scrollbars: left to macOS — overlay, thin, shown while scrolling. Never hidden. */
+
+/* ── Type (tuned for 1710 and 2560 wide). Weights: 300 · 400 · 500, never more ─ */
+.hero { font-size:clamp(64px, 4.6vw, 112px); font-weight:300; line-height:1.02; letter-spacing:-.035em; margin:0; }
+.h2   { font-size:clamp(28px, 1.9vw, 40px);  font-weight:500; line-height:1.15; letter-spacing:-.02em; margin:0; }
+.text { font-size:clamp(17px, 1.05vw, 20px); line-height:1.55; max-width:68ch; }
+.label{ font-size:13px; font-weight:500; color:var(--ink-soft); letter-spacing:.005em; }
+.num  { font-weight:400; letter-spacing:-.02em; }
+
+/* ── Layout: two panes, left ¼ · right ¾, each its own scroller ─────────── */
+#app{ display:flex; height:100dvh; }
+.pane-l{
+  flex:0 0 var(--pane-l); height:100%; overflow-y:auto; overscroll-behavior:contain;
+  border-right:1px solid var(--hair-soft); background:var(--ground);
+  padding:48px 32px 64px;
+}
+.pane-r{ flex:1 1 auto; min-width:0; height:100%; overflow-y:auto; overscroll-behavior:contain; }
+.pane-r .body{ max-width:1120px; padding:56px clamp(48px, 5vw, 120px) 120px; }
+
+/* the list in the left pane */
+.row{
+  display:block; width:100%; padding:14px 0; border-bottom:1px solid var(--hair-soft);
+  font-size:clamp(17px, 1.15vw, 22px); color:var(--ink-soft); cursor:pointer;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.row:last-child{ border-bottom:0; }
+@media (hover:hover){ .row:hover{ color:var(--ink); } }
+.row[aria-current="true"]{ color:var(--ink); font-weight:500; }
+.row:active{ opacity:.6; }
+
+/* ── One-pane mode: windowed, or the person hid the left pane ────────────
+   The left pane leaves the layout; it comes back as an overlay (the SAME
+   element, moved) when the pointer enters the top-left zone — the left
+   quarter of the width, the top sixth of the height — or on `.           */
+.pane-hide{
+  border:0; background:none; padding:4px 0; margin:0;
+  font:inherit; font-size:13px; color:var(--ink-soft); cursor:pointer; text-align:left;
+}
+.pane-hide kbd{ font:inherit; color:var(--muted); margin-left:6px; }
+.pane-hide .keep{ display:none; }
+html.is-single .pane-hide .hide{ display:none; }
+html.is-single .pane-hide .keep{ display:inline; }
+html.is-windowed .pane-hide{ display:none; }        /* windowed: the overlay is the only way it shows */
+@media (hover:hover){ .pane-hide:hover{ color:var(--ink); } }
+.menu-hint{ display:none; }
+/* one-pane mode: the link sits in the top-left zone, invisible until the
+   pointer enters that zone (or it takes keyboard focus); always shown on touch */
+html.is-single .menu-hint{
+  display:block; position:fixed; z-index:15;
+  top:calc(env(safe-area-inset-top, 0px) + 18px); left:max(16px, env(safe-area-inset-left, 0px), 2vw);
+  padding:6px 10px; margin:0; border-radius:8px; background:var(--ground);
+  font-size:13px; color:var(--ink-soft); cursor:pointer;
+  opacity:0; pointer-events:none; transition:opacity .14s ease;
+}
+html.is-single .menu-hint kbd{ font:inherit; color:var(--muted); margin-left:6px; }
+html.is-single.hint-on .menu-hint,
+html.kbd-nav.is-single .menu-hint:focus-visible{ opacity:1; pointer-events:auto; }
+@media (hover:none){ html.is-single .menu-hint{ opacity:1; pointer-events:auto; } }
+@media (hover:hover){ html.is-single .menu-hint:hover{ color:var(--ink); } }
+
+html.is-single .pane-l{
+  position:fixed; z-index:20; inset:0 auto 0 0; width:clamp(280px, 25vw, 640px);
+  transform:translateX(-100%); visibility:hidden;
+  transition:transform .22s cubic-bezier(.32,.72,0,1), visibility 0s linear .22s;
+}
+html.is-single.menu-open .pane-l{
+  transform:none; visibility:visible; border-right:1px solid var(--hair);
+  transition:transform .22s cubic-bezier(.32,.72,0,1), visibility 0s;
+}
+
+/* ── Controls: native elements, flat ────────────────────────────────────── */
+/* slider + checkbox + radio take ink through accent-color, natively */
+input[type="range"], input[type="checkbox"], input[type="radio"]{ accent-color:var(--ink); }
+input[type="range"]{ width:100%; max-width:420px; cursor:pointer; }
+
+/* toggle: a checkbox with role="switch", drawn flat */
+input[type="checkbox"][role="switch"]{
+  -webkit-appearance:none; appearance:none; margin:0; flex:none; cursor:pointer;
+  position:relative; width:40px; height:24px; border-radius:999px;
+  background:var(--hair); transition:background .16s ease;
+}
+input[type="checkbox"][role="switch"]::before{
+  content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:999px;
+  background:var(--ground); transition:transform .18s cubic-bezier(.32,.72,0,1);
+}
+input[type="checkbox"][role="switch"]:checked{ background:var(--ink); }
+input[type="checkbox"][role="switch"]:checked::before{ transform:translateX(16px); }
+
+/* segmented choice: a radio group; the chosen one is heavier ink + a 2px mark */
+.seg{ display:inline-flex; gap:28px; border:0; padding:0; margin:0; }
+.seg label{ position:relative; cursor:pointer; padding:6px 0; color:var(--ink-soft); font-weight:400; }
+.seg input{ position:absolute; opacity:0; width:1px; height:1px; }
+.seg input:checked + span{ color:var(--ink); font-weight:500; }
+.seg input:checked + span::after{
+  content:""; position:absolute; left:0; right:0; bottom:0; height:2px; background:var(--ink); border-radius:2px;
+}
+html.kbd-nav .seg input:focus-visible + span{ outline:1px solid var(--muted); outline-offset:4px; border-radius:6px; }
+@media (hover:hover){ .seg label:hover span{ color:var(--ink); } }
+
+/* search */
+input[type="search"]{
+  -webkit-appearance:none; appearance:none; width:100%; max-width:420px;
+  font:inherit; font-size:16px; color:var(--ink);
+  background:var(--wall); border:0; border-radius:10px; padding:10px 14px;
+}
+input[type="search"]::placeholder{ color:var(--muted); }
+
+/* buttons: only for real actions — navigation is text */
+button{ font:inherit; cursor:pointer; }
+.btn{ border:0; border-radius:10px; padding:10px 18px; font-weight:500; background:var(--wall); color:var(--ink); }
+.btn.primary{ background:var(--ink); color:var(--ground); }
+.btn:active{ opacity:.6; }
+
+/* ── Multiple-choice questions (quiz.js builds them from JSON) ─────────────
+   State without color: the right answer gets an ink bar and Medium weight,
+   a wrong pick is struck through, everything else recedes to grey. */
+.mcq-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:44px; max-width:760px; }
+.mcq-q{ display:grid; grid-template-columns:2em minmax(0, 1fr); column-gap:10px; outline-offset:8px; }
+.mcq-n{ font-size:clamp(19px, 1.25vw, 24px); line-height:1.45; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.mcq-body{ display:flex; flex-direction:column; gap:12px; min-width:0; }
+.mcq-text{ margin:0; font-size:clamp(19px, 1.25vw, 24px); line-height:1.45; color:var(--ink); }
+.mcq-text mjx-container[display="true"]{ margin:.5em 0 !important; }
+.mcq-opts{ display:flex; flex-direction:column; gap:2px; }
+.mcq-opt{
+  display:grid; grid-template-columns:1.5em minmax(0, 1fr); align-items:baseline; gap:8px;
+  width:calc(100% + 20px); margin:0 -10px; padding:9px 10px; border:0; border-radius:8px;
+  background:none; text-align:left; font:inherit; font-size:clamp(17px, 1.05vw, 20px); line-height:1.45;
+  color:var(--ink); cursor:pointer;
+}
+.mcq-l{ color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+@media (hover:hover){ .mcq-q:not(.is-done) .mcq-opt:hover{ background:var(--wall); } }
+.mcq-q:not(.is-done) .mcq-opt:active{ opacity:.6; }
+.mcq-q.is-done .mcq-opt{ cursor:default; color:var(--ink-soft); }
+.mcq-q.is-done .mcq-opt.is-answer{ color:var(--ink); font-weight:500; box-shadow:inset 2px 0 0 var(--ink); }
+.mcq-q.is-done .mcq-opt.is-answer .mcq-l{ color:var(--ink); }
+.mcq-q.is-done .mcq-opt.is-chosen:not(.is-answer) .mcq-t{ text-decoration:line-through; text-decoration-thickness:1px; }
+/* typed answers: a flat native field + Check; a wrong answer is struck through */
+.mcq-type{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.mcq-input, .mcq-area{
+  -webkit-appearance:none; appearance:none; width:100%; max-width:420px; font:inherit; font-size:clamp(17px, 1.05vw, 20px);
+  line-height:1.45; color:var(--ink); background:var(--wall); border:0; border-radius:10px; padding:9px 14px;
+}
+.mcq-area{ max-width:62ch; resize:vertical; min-height:4.6em; }
+.mcq-input:read-only, .mcq-area:read-only{ background:none; padding-left:0; color:var(--ink); }
+.mcq-area:read-only{ resize:none; min-height:0; field-sizing:content; }
+.mcq-input.is-wrong{ text-decoration:line-through; text-decoration-thickness:1px; color:var(--ink-soft); }
+.mcq-show, .mcq-self .btn{ align-self:flex-start; }
+.mcq-self{ display:flex; gap:10px; }
+.mcq [hidden]{ display:none !important; }
+.mcq-model{ font-size:clamp(17px, 1.05vw, 20px); line-height:1.45; color:var(--ink); font-weight:500; max-width:62ch;
+  box-shadow:inset 2px 0 0 var(--ink); padding-left:12px; }
+/* Copy question: quiet, right under the last answer choice */
+.mcq-copyq{ align-self:flex-start; margin:-2px 0 0 -10px; padding:6px 10px; border:0; border-radius:8px; background:none;
+  font-size:15px; color:var(--ink-soft); }
+@media (hover:hover){ .mcq-copyq:hover{ background:var(--wall); color:var(--ink); } }
+.mcq-copyq:active{ opacity:.6; }
+.mcq-body > .mcq-fallback{ margin-top:0; min-height:90px; }
+.mcq-fb{ margin:6px 0 0; font-size:17px; font-weight:500; color:var(--ink); }
+.mcq-why{ margin:0; font-size:17px; line-height:1.5; color:var(--ink-soft); max-width:62ch; }
+.mcq-bar{ display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:44px; }
+.mcq-score{ font-size:15px; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.mcq-fallback{ width:100%; max-width:760px; min-height:160px; margin-top:16px; font:14px/1.5 var(--sans); color:var(--ink);
+  background:var(--wall); border:0; border-radius:10px; padding:12px 14px; }
+/* the question numbers, in the left pane of a quiz page */
+.mcq-nav{ display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:4px; }
+.mcq-nav a{ display:block; padding:8px 0; border-radius:8px; text-align:center; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+@media (hover:hover){ .mcq-nav a:hover{ background:var(--wall); color:var(--ink); } }
+.mcq-nav a.is-right{ color:var(--ink); text-decoration:underline; text-decoration-thickness:2px; text-underline-offset:.25em; }
+.mcq-nav a.is-wrong{ color:var(--ink); text-decoration:line-through; text-decoration-thickness:1px; }
+/* fractions stay full size inline */
+mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
+
+/* ── Loading: the one color exception — a thin rainbow ring, only while loading */
+.loading{
+  width:18px; height:18px; border-radius:50%;
+  background:conic-gradient(#ff3b30,#ff9500,#ffcc00,#34c759,#00c7be,#007aff,#af52de,#ff3b30);
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+          mask:radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  animation:mm-spin .9s linear infinite;
+}
+@keyframes mm-spin{ to{ transform:rotate(1turn); } }
+
+@media (prefers-reduced-motion:reduce){
+  *{ animation:none!important; transition:none!important; }
+}
+
+
+/* ── page ─────────────────────────────────────────────────────────────── */
+[hidden]{ display:none !important; }
+.pane-hide{ margin-bottom:20px; }
+.pane-l .row{ background:none; border-top:0; border-left:0; border-right:0; border-radius:0; text-align:left; }
+.foot{ margin-top:48px; font-size:13px; line-height:1.5; color:var(--ink-soft); }
+.foot + .foot{ margin-top:12px; }
+.lnk{ text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; }
+
+.cells{ display:flex; flex-wrap:wrap; gap:26px 56px; margin:40px 0 0; }
+.cell{ display:flex; flex-direction:column; gap:5px; min-width:0; }
+.cell .v{ font-size:clamp(24px, 1.7vw, 34px); font-weight:400; letter-spacing:-.02em; line-height:1.2; overflow-wrap:anywhere; }
+.cell .v.code{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:clamp(18px, 1.25vw, 24px); letter-spacing:0; line-height:1.5; }
+.act{ display:flex; align-items:center; gap:16px; margin-top:36px; min-height:44px; }
+.btn[aria-disabled="true"]{ opacity:.5; cursor:default; }
+.err{ margin:24px 0 0; font-weight:500; max-width:62ch; }
+.sec{ margin:64px 0 0; }
+.sec > .h2{ margin:0 0 24px; }
+.sec > .cells{ margin-top:0; }
+.why{ margin:32px 0 0; }
+.plan .h2{ margin:56px 0 24px; }
+
+.mail{ max-width:62ch; border-left:1px solid var(--hair); padding-left:24px; display:flex; flex-direction:column; gap:14px;
+  font-size:clamp(17px, 1.05vw, 20px); line-height:1.55; }
+.mail p{ margin:0; }
+.subj{ font-weight:500; }
+
+.log{ list-style:none; margin:0; padding:0; max-width:760px; }
+.log li{ display:grid; grid-template-columns:5.5em minmax(0, 1fr) minmax(0, 1fr); gap:4px 16px; padding:12px 0;
+  border-top:1px solid var(--hair-soft); font-size:16px; line-height:1.4; }
+.log .t, .log .i{ color:var(--ink-soft); }
+.log .i{ grid-column:2 / -1; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+<div id="app">
+  <nav class="pane-l">
+    <button class="pane-hide" type="button"><span class="hide">Hide</span><span class="keep">Keep open</span><kbd>`</kbd></button>
+    <div id="rows"></div>
+    <p class="foot"><a class="lnk" href="strategy.html">Strategy simulator</a></p>
+    <p class="foot">Stripe test mode. No real money moves. A learning project, not affiliated with Subcraft.</p>
+  </nav>
+  <main class="pane-r">
+    <a class="menu-hint" href="#">Menu<kbd>`</kbd></a>
+    <div class="body">
+      <h1 class="hero" id="hero"></h1>
+      <div class="cells">
+        <div class="cell"><span class="label">Test card</span><span class="v" id="number"></span></div>
+        <div class="cell"><span class="label">Amount</span><span class="v">$20.00</span></div>
+      </div>
+      <div class="act">
+        <button class="btn primary" id="go" type="button">Charge $20</button>
+        <span class="loading" id="spin" hidden></span>
+      </div>
+      <p class="err" id="err" hidden></p>
+
+      <section class="sec" id="result" hidden>
+        <h2 class="h2">Stripe&rsquo;s answer</h2>
+        <div class="cells">
+          <div class="cell"><span class="label">Result</span><span class="v" id="r-result"></span></div>
+          <div class="cell"><span class="label">Error code</span><span class="v code" id="r-code"></span></div>
+          <div class="cell"><span class="label">Decline code</span><span class="v code" id="r-decline"></span></div>
+          <div class="cell"><span class="label">Payment</span><span class="v code" id="r-id"></span></div>
+        </div>
+      </section>
+
+      <div id="plans"></div>
+
+      <section class="sec" id="logsec" hidden>
+        <h2 class="h2">Attempts</h2>
+        <ul class="log" id="log"></ul>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>if (innerWidth < 900) document.documentElement.setAttribute('data-layout', 'single');</script>
+<script>
+(function () {
+  'use strict';
+
+  var CARDS = [
+    { id: 'funds',   name: 'Insufficient funds',  number: '4000 0000 0000 9995' },
+    { id: 'expired', name: 'Expired card',        number: '4000 0000 0000 0069' },
+    { id: 'bank',    name: 'Bank says no',        number: '4000 0000 0000 0002' },
+    { id: 'network', name: 'Network error',       number: '4000 0000 0000 0119' },
+    { id: 'lost',    name: 'Lost card',           number: '4000 0000 0000 9987' },
+    { id: 'fraud',   name: 'Blocked as fraud',    number: '4100 0000 0000 0019' },
+    { id: 'cvc',     name: 'Wrong security code', number: '4000 0000 0000 0127' },
+    { id: 'ok',      name: 'Card that works',     number: '4242 4242 4242 4242' }
+  ];
+
+  /* What to do next, picked from the code Stripe sends back. */
+  var PLANS = {
+    funds: {
+      plan: 'Retry on day 3 and day 7',
+      why: 'The card is fine. The account just didn’t have enough money that day. Money often arrives a few days later, so waiting gives the next try a better chance.',
+      email: { subject: 'Your payment didn’t go through', paras: [
+        'Hi Sam,',
+        'We tried to renew your Plus plan today, but the payment didn’t go through. You don’t need to do anything. We’ll try again in a few days.',
+        'If you’d rather use a different card, it takes about a minute.' ], cta: 'Update my card' }
+    },
+    expired: {
+      plan: 'No retries. Ask for a new card',
+      why: 'The card ran out of time. Trying again can’t fix that, so retries just waste attempts. Only the customer can add a new card, so the best move is to ask right away.',
+      email: { subject: 'Your card has expired', paras: [
+        'Hi Sam,',
+        'The card on file has expired, so we couldn’t renew your Plus plan.',
+        'Adding a new card takes about a minute, and your plan stays active in the meantime.' ], cta: 'Add a new card' }
+    },
+    bank: {
+      plan: 'Retry on day 2 and day 5',
+      why: 'The bank said no and didn’t give a reason. It might be temporary, so a couple of spaced-out retries are worth a shot. If they fail, the customer needs to try another card or call the bank.',
+      email: { subject: 'We couldn’t process your payment', paras: [
+        'Hi Sam,',
+        'Your bank declined the payment for your Plus plan, and it didn’t tell us why. This happens sometimes, and it’s usually easy to fix.',
+        'You can try a different card, or call your bank and ask them to allow the charge.' ], cta: 'Update my card' }
+    },
+    network: {
+      plan: 'Retry in 1 hour',
+      why: 'Something broke on the payment network’s side. It isn’t the customer’s fault, so there’s no reason to bother them. A quick retry usually works.',
+      noMail: 'None. If the retry works, the customer never finds out.'
+    },
+    lost: {
+      plan: 'No retries. Ask for a new card',
+      why: 'The bank has shut this card off because it was reported lost. Retrying won’t work. The email should just ask for a new card and not say why.',
+      email: { subject: 'Please update your payment method', paras: [
+        'Hi Sam,',
+        'We can’t charge the card on file anymore, so we couldn’t renew your Plus plan.',
+        'Please add a new card by next Friday to keep your plan active.' ], cta: 'Add a new card' }
+    },
+    fraud: {
+      plan: 'No retries. Ask for a different card',
+      why: 'A fraud filter blocked the charge. Trying again won’t change its mind, and extra tries can look suspicious. A different card is the best fix.',
+      email: { subject: 'Please try a different card', paras: [
+        'Hi Sam,',
+        'We couldn’t use the card on file to renew your Plus plan.',
+        'Could you add a different card? It takes about a minute, and your plan stays active in the meantime.' ], cta: 'Add a different card' }
+    },
+    cvc: {
+      plan: 'No retries. Ask them to re-enter the card',
+      why: 'The 3-digit security code was wrong. A retry sends the same wrong code, so it fails again. The customer has to type the card in again.',
+      email: { subject: 'Please re-enter your card details', paras: [
+        'Hi Sam,',
+        'The security code on your card didn’t match, so we couldn’t renew your Plus plan.',
+        'Typing your card in again takes about a minute.' ], cta: 'Re-enter my card' }
+    },
+    ok: {
+      plan: 'Nothing to recover',
+      why: 'The payment went through, so there’s no retry and no email.'
+    }
+  };
+
+  /* Stripe's reply -> which plan applies. Exposed for testing. */
+  function reasonOf(r) {
+    if (r.paid) return 'ok';
+    var code = r.code, dc = r.decline_code;
+    if (code === 'expired_card') return 'expired';
+    if (code === 'incorrect_cvc') return 'cvc';
+    if (code === 'processing_error') return 'network';
+    if (code === 'fraud' || dc === 'fraudulent') return 'fraud';
+    if (dc === 'insufficient_funds') return 'funds';
+    if (dc === 'lost_card' || dc === 'stolen_card') return 'lost';
+    return 'bank';
+  }
+  window.reasonOf = reasonOf;
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function $(id) { return document.getElementById(id); }
+
+  var hero = $('hero'), number = $('number'), go = $('go'), spin = $('spin'), err = $('err');
+  var result = $('result'), logsec = $('logsec'), log = $('log');
+  var rows = {}, planEls = {}, byId = {}, current = null, busy = false;
+
+  /* Built once. Pressing only changes text, classes and what's hidden. */
+  CARDS.forEach(function (c) {
+    byId[c.id] = c;
+    var b = el('button', 'row', c.name);
+    b.type = 'button';
+    b.setAttribute('aria-current', 'false');
+    b.addEventListener('click', function () { select(c.id); });
+    $('rows').appendChild(b);
+    rows[c.id] = b;
+  });
+  Object.keys(PLANS).forEach(function (id) {
+    var p = PLANS[id], s = el('section', 'plan');
+    s.hidden = true;
+    s.appendChild(el('h2', 'h2', 'What to do next'));
+    var cells = el('div', 'cells');
+    var cell = el('div', 'cell');
+    cell.appendChild(el('span', 'label', 'Plan'));
+    cell.appendChild(el('span', 'v', p.plan));
+    cells.appendChild(cell);
+    s.appendChild(cells);
+    s.appendChild(el('p', 'text why', p.why));
+    if (p.email || p.noMail) {
+      s.appendChild(el('h2', 'h2', 'Email'));
+      if (p.email) {
+        var mail = el('div', 'mail');
+        mail.appendChild(el('p', 'subj', p.email.subject));
+        p.email.paras.forEach(function (t) { mail.appendChild(el('p', null, t)); });
+        mail.appendChild(el('p')).appendChild(el('span', 'lnk', p.email.cta));
+        mail.appendChild(el('p', null, 'The Northwind team'));
+        s.appendChild(mail);
+      } else {
+        s.appendChild(el('p', 'text', p.noMail));
+      }
+    }
+    $('plans').appendChild(s);
+    planEls[id] = s;
+  });
+
+  function clearResult() {
+    result.hidden = true;
+    err.hidden = true;
+    Object.keys(planEls).forEach(function (id) { planEls[id].hidden = true; });
+  }
+  function select(id) {
+    if (id === current) return;
+    current = id;
+    CARDS.forEach(function (c) { rows[c.id].setAttribute('aria-current', c.id === id ? 'true' : 'false'); });
+    hero.textContent = byId[id].name;
+    number.textContent = byId[id].number;
+    clearResult();
+  }
+
+  function setBusy(v) {
+    busy = v;
+    spin.hidden = !v;
+    if (v) go.setAttribute('aria-disabled', 'true'); else go.removeAttribute('aria-disabled');
+  }
+  function clock() {
+    var d = new Date();
+    function two(n) { return (n < 10 ? '0' : '') + n; }
+    return two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+  }
+  function addLog(card, data) {
+    var li = el('li');
+    li.appendChild(el('span', 't', clock()));
+    li.appendChild(el('span', 'c', card.name));
+    li.appendChild(el('span', 'o', data.paid ? 'Paid' : 'Declined: ' + (data.decline_code || data.code || 'unknown')));
+    if (data.id) li.appendChild(el('span', 'i', data.id));
+    log.insertBefore(li, log.firstChild);
+    logsec.hidden = false;
+  }
+  function show(data) {
+    $('r-result').textContent = data.paid ? 'Paid' : 'Declined';
+    $('r-code').textContent = data.code || 'None';
+    $('r-decline').textContent = data.decline_code || 'None';
+    $('r-id').textContent = data.id || 'None';
+    result.hidden = false;
+    planEls[reasonOf(data)].hidden = false;
+  }
+  function fail(msg) { err.textContent = msg; err.hidden = false; }
+
+  go.addEventListener('click', function () {
+    if (busy) return;
+    var id = current, card = byId[id];
+    clearResult();
+    setBusy(true);
+    fetch('api/charge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card: id }) })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        setBusy(false);
+        if (!x.ok || x.d.error) { if (current === id) fail(x.d.error || 'The server had a problem. Try again.'); return; }
+        addLog(card, x.d);
+        if (current === id) show(x.d);
+      })
+      .catch(function () {
+        setBusy(false);
+        if (current === id) fail('Couldn’t reach the server. Check your connection and try again.');
+      });
+  });
+
+  select(CARDS[0].id);
+})();
+</script>
+<script>/* minimono.js — the house style's behavior. Include before </body>; no init.
+   1. Two panes or one. Full-screen shows both (left ¼ · right ¾). The page
+      goes to one pane when the window isn't full-screen, or when the person
+      hides the left pane (`, or the pane's own "Hide"). Hiding is
+      remembered. Force the layout with <html data-layout="split|single">.
+   2. In one-pane mode the "Menu" link (.menu-hint) is invisible until the
+      pointer enters the top-left zone (left quarter, top sixth); clicking it,
+      or `, opens the left pane as an overlay. Esc, a click outside, or
+      choosing a row closes it. With no pointer (touch), the link stays shown.
+      The overlay is the SAME .pane-l element, moved by a class — never a
+      copy, never rebuilt — so its scroll position and selection survive.
+   3. Safari: trackpad pinch-zoom is blocked; ⌘+ / ⌘− still work.          */
+(function () {
+  'use strict';
+  var html = document.documentElement;
+  var KEY = 'minimono:pane-hidden';
+  var hidden = false;
+  try { hidden = localStorage.getItem(KEY) === '1'; } catch (e) {}
+
+  /* 1. Two panes or one ---------------------------------------------------- */
+  function isFull() {
+    var forced = html.getAttribute('data-layout');
+    if (forced === 'split') return true;
+    if (forced === 'single') return false;
+    // Full-screen or maximized. At the top level, measure the window itself
+    // (outerWidth): ⌘+ zoom shrinks innerWidth but not the window. Embedded
+    // in a frame, the frame's own width is what's available.
+    var top = true;
+    try { top = window.top === window; } catch (e) { top = false; }
+    var w = top && outerWidth > 0 ? outerWidth : innerWidth;
+    return w >= screen.availWidth - 24;
+  }
+  function layout() {
+    var windowed = !isFull();
+    html.classList.toggle('is-windowed', windowed);
+    var single = windowed || hidden;
+    if (single !== html.classList.contains('is-single')) {
+      if (!single) close(true);
+      html.classList.toggle('is-single', single);
+    }
+  }
+  function setHidden(v) {
+    hidden = v;
+    try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {}
+    close(true);
+    layout();
+  }
+  var raf = 0;
+  addEventListener('resize', function () { if (!raf) raf = requestAnimationFrame(function () { raf = 0; layout(); }); });
+  new MutationObserver(layout).observe(html, { attributes: true, attributeFilter: ['data-layout'] });
+
+  /* 2. The overlay --------------------------------------------------------- */
+  var lastFocus = null;
+  function pane() { return document.querySelector('.pane-l'); }
+  function typing(el) {
+    if (!el || el === document.body) return false;
+    if (el.isContentEditable) return true;
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+    return el.tagName === 'INPUT' && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(el.type);
+  }
+  function single() { return html.classList.contains('is-single'); }
+  function isOpen() { return html.classList.contains('menu-open'); }
+  function open(keyboard) {
+    if (!single() || isOpen()) return;
+    html.classList.remove('hint-on');
+    html.classList.add('menu-open');
+    lastFocus = document.activeElement;
+    if (keyboard) {                                   // keyboard: move focus in
+      var p = pane(), cur = p && (p.querySelector('[aria-current="true"]') || p.querySelector('a,button,input,[tabindex]'));
+      if (cur) cur.focus({ preventScroll: true });
+    }
+  }
+  function close(silent) {
+    if (!isOpen()) return;
+    html.classList.remove('menu-open');
+    var p = pane();
+    if (!silent && lastFocus && lastFocus.focus && lastFocus !== document.body) lastFocus.focus({ preventScroll: true });
+    else if (p && p.contains(document.activeElement)) document.activeElement.blur();
+    lastFocus = null;
+  }
+
+  // the top-left zone: left quarter of the width, top sixth of the height.
+  // Entering it shows the menu link; nothing opens until the link is clicked.
+  function inZone(x, y) { return x <= innerWidth / 4 && y <= innerHeight / 6; }
+  var hintTimer = 0;
+  function hint(on) {
+    clearTimeout(hintTimer);
+    if (on) { html.classList.add('hint-on'); return; }
+    hintTimer = setTimeout(function () { html.classList.remove('hint-on'); }, 200);
+  }
+  addEventListener('pointermove', function (e) {
+    if (e.pointerType !== 'mouse') return;
+    hint(single() && !isOpen() && inZone(e.clientX, e.clientY));
+  }, { passive: true });
+  document.addEventListener('mouseleave', function () { hint(false); });
+
+  addEventListener('keydown', function (e) {
+    // ` (backtick) on its own — left alone while typing in a field
+    if (e.key === '`' && !e.metaKey && !e.ctrlKey && !e.altKey && !typing(document.activeElement)) {
+      e.preventDefault();
+      if (html.classList.contains('is-windowed')) { isOpen() ? close() : open(true); }
+      else setHidden(!hidden);                        // full-screen: hide, or dock it again
+      return;
+    }
+    if (e.key === 'Escape' && isOpen()) { e.preventDefault(); close(); }
+  });
+  addEventListener('pointerdown', function (e) {
+    if (!isOpen()) return;
+    var p = pane();
+    if (p && !p.contains(e.target) && !(e.target.closest && e.target.closest('.menu-hint'))) close();
+  });
+  addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target : e.target.parentElement;
+    if (t.closest('.menu-hint')) { e.preventDefault(); isOpen() ? close() : open(false); return; }
+    if (t.closest('.pane-hide')) {                    // docked: "Hide" · hidden overlay: "Keep open"
+      e.preventDefault(); setHidden(!hidden); return;
+    }
+    if (isOpen() && t.closest('.pane-l .row, .pane-l .mcq-nav a')) close();
+  });
+
+  /* Focus rings: only after Tab. Shift, arrows, Space and clicks never show one. */
+  addEventListener('keydown', function (e) { if (e.key === 'Tab') html.classList.add('kbd-nav'); }, true);
+  addEventListener('pointerdown', function () { html.classList.remove('kbd-nav'); }, true);
+
+  /* 3. Safari pinch-zoom ---------------------------------------------------- */
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (t) {
+    document.addEventListener(t, function (e) { e.preventDefault(); }, { passive: false });
+  });
+
+  layout();
+  window.Minimono = {
+    open: function () { open(true); }, close: close,
+    hide: function () { setHidden(true); }, show: function () { setHidden(false); },
+    relayout: layout
+  };
+})();
+</script>
+<script>/* smooth-scroll.js — Safari's keyboard scrolling, for every pane.
+   ---------------------------------------------------------------------------
+   A port of WebKit's keyboard-scroll physics (ScrollAnimationKeyboard.cpp,
+   KeyboardScroll.h, macOS constants) so Space, arrows, Page Up/Down and
+   Home/End glide and settle on a spring in every scroller — the page, and
+   each two-pane split pane on its own.
+
+     ↑ / ↓            tap: glide one line (40px) · hold: accelerate to
+                      1000px/s in 0.2s, cruise, then the spring carries the
+                      leftover momentum and settles
+     Space / ⇧Space   the same, with a page as the step (the visible height
+     PgDn / PgUp      less 40px of overlap, never less than 87.5% of it):
+                      tap glides at least a page, hold accelerates
+     Home / End       glide to the top / bottom (also ⌘↑ / ⌘↓ on a Mac)
+   Key repeats are ignored while a key is held, as in WebKit.
+
+   Which scroller moves: the one under the pointer, else the one that holds
+   focus, else the last one clicked, else the page.
+   Left alone: any control that uses these keys itself — text fields,
+   sliders, radio groups, selects, contenteditable, tabs, listboxes — and
+   Space on a button, link, checkbox or anything else Space activates. Any key with ⌥/⌃
+   (and ⌘ except ⌘↑/⌘↓) passes through.
+   Respects prefers-reduced-motion: the same steps, applied instantly.
+   No init call — include before </body>. ~3KB. Exposes window.SmoothScroll.  */
+(function () {
+  'use strict';
+  if (window.SmoothScroll) return;
+
+  /* WebKit macOS KeyboardScrollParameters */
+  var MASS = 1, STIFF = 175, DAMP = 20, MAX_VEL_MULT = 25, TIME_TO_MAX = 0.2;
+  var LINE = 40;                         /* Scrollbar::pixelsPerLineStep()          */
+  var PAGE_MIN_FRACTION = 0.875;         /* Scrollbar::minFractionToStepWhenPaging  */
+  var PAGE_OVERLAP = 40;                 /* Scrollbar::maxOverlapBetweenPages        */
+
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)');
+  var docEl = function () { return document.scrollingElement || document.documentElement; };
+
+  function canScroll(el) {
+    if (el === docEl()) return el.scrollHeight > el.clientHeight;
+    var s = getComputedStyle(el), o = s.overflowY;
+    return (o === 'auto' || o === 'scroll' || o === 'overlay') && el.scrollHeight > el.clientHeight + 1;
+  }
+  function scrollerFrom(node) {
+    for (var el = node; el && el.nodeType === 1; el = el.parentElement) {
+      if (el === document.body || el === document.documentElement) break;
+      if (canScroll(el)) return el;
+    }
+    return canScroll(docEl()) ? docEl() : null;
+  }
+
+  var hovered = null, clicked = null;
+  addEventListener('pointermove', function (e) { if (e.pointerType === 'mouse') hovered = e.target; }, { passive: true });
+  addEventListener('pointerdown', function (e) { clicked = e.target; }, { passive: true });
+  document.addEventListener('mouseleave', function () { hovered = null; });
+
+  function pickScroller() {
+    var a = document.activeElement;
+    return (hovered && scrollerFrom(hovered)) ||
+           (a && a !== document.body && scrollerFrom(a)) ||
+           (clicked && scrollerFrom(clicked)) ||
+           scrollerFrom(document.body);
+  }
+
+  // controls that use arrows / Page / Home / End themselves keep them
+  function ownsKeys(el) {
+    if (!el || el === document.body) return false;
+    if (el.isContentEditable) return true;
+    var t = el.tagName;
+    if (t === 'TEXTAREA' || t === 'SELECT') return true;
+    if (t === 'INPUT') return !/^(button|submit|reset|checkbox|color|file|image)$/i.test(el.type);
+    var r = el.getAttribute && el.getAttribute('role');
+    return !!r && /^(slider|spinbutton|radio|radiogroup|tab|tablist|listbox|option|menu|menubar|menuitem|combobox|grid|tree|treeitem|textbox)$/.test(r);
+  }
+  function spaceActivates(el) {
+    if (!el || el === document.body) return false;
+    if (/^(BUTTON|A|SUMMARY|INPUT)$/.test(el.tagName)) return true;
+    var r = el.getAttribute && el.getAttribute('role');
+    return !!r && /^(button|link|tab|checkbox|radio|switch|menuitem|option|slider)$/.test(r);
+  }
+
+  /* One animator per scroller ------------------------------------------- */
+  var anims = new WeakMap();
+  function Anim(el) {
+    this.el = el; this.pos = el.scrollTop; this.vel = 0;
+    this.held = null; this.ideal = this.pos; this.minTravel = this.pos;
+    this.raf = 0; this.last = 0;
+  }
+  Anim.prototype.max = function () { return this.el.scrollHeight - this.el.clientHeight; };
+  Anim.prototype.sync = function () {
+    // the user may have scrolled by wheel/trackpad since we last moved it
+    if (!this.raf) { this.pos = this.el.scrollTop; this.ideal = this.pos; this.vel = 0; }
+  };
+  Anim.prototype.run = function () {
+    if (this.raf) return;
+    var self = this; this.last = performance.now();
+    this.raf = requestAnimationFrame(function f(t) { self.step(t) ? (self.raf = requestAnimationFrame(f)) : (self.raf = 0); });
+  };
+  Anim.prototype.stop = function () { if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; this.vel = 0; this.held = null; };
+  Anim.prototype.write = function () {
+    var max = this.max();
+    if (this.pos <= 0 || this.pos >= max) {          // hit an edge: stop there, no overshoot
+      this.pos = Math.min(Math.max(this.pos, 0), max);
+      this.vel = 0; this.ideal = this.pos;
+      this.el.scrollTop = this.pos;
+      return false;
+    }
+    this.el.scrollTop = this.pos;
+    return true;
+  };
+  /* ScrollAnimationKeyboard::animateScroll */
+  Anim.prototype.step = function (t) {
+    var dt = (t - this.last) / 1000; this.last = t;
+    if (dt <= 0) return true;
+    if (dt > 0.05) dt = 0.05;                          // a stalled frame shouldn't fling
+    var force = 0, spring = true, ideal = this.ideal;
+    if (this.held) {
+      force = this.held.force; spring = false; ideal = this.pos;
+      if (Math.abs(this.vel) >= Math.abs(this.held.maxVel)) force = 0;
+    }
+    var disp = this.pos - ideal;
+    if (spring) force -= disp * STIFF + this.vel * DAMP;
+    this.vel += force / MASS * dt;
+    this.pos += this.vel * dt;
+    var inside = this.write();
+    if (spring && disp * (this.pos - ideal) < 0) { this.vel = 0; this.pos = ideal; this.el.scrollTop = ideal; }
+    if (!inside && !this.held) return false;
+    if (!this.held && this.vel * this.vel < 1 && Math.abs(this.pos - ideal) < 0.5) { this.vel = 0; return false; }
+    return true;
+  };
+  /* startKeyboardScroll — velocity carries over, like WebKit */
+  Anim.prototype.hold = function (dir, step) {
+    var maxVel = step * MAX_VEL_MULT * dir;
+    this.held = { dir: dir, maxVel: maxVel, force: maxVel * MASS / TIME_TO_MAX };
+    this.minTravel = this.pos + step * dir;
+    this.run();
+  };
+  /* stopKeyboardScrollAnimation */
+  Anim.prototype.release = function () {
+    if (!this.held) return;
+    var d = Math.sqrt(this.vel * this.vel * MASS / STIFF) * (this.vel < 0 ? -1 : 1);
+    var settle = this.pos + d;
+    this.ideal = this.held.dir > 0 ? Math.max(settle, this.minTravel) : Math.min(settle, this.minTravel);
+    this.ideal = Math.round(Math.min(Math.max(this.ideal, 0), this.max()));
+    this.held = null;
+    this.run();
+  };
+  /* a jump to a target (top / bottom, or the public API): spring there */
+  Anim.prototype.to = function (target) {
+    var base = this.raf && !this.held ? this.ideal : this.pos;
+    if (typeof target === 'function') target = target(base);
+    this.held = null;
+    this.ideal = Math.round(Math.min(Math.max(target, 0), this.max()));
+    this.run();
+  };
+
+  function anim(el) { var a = anims.get(el); if (!a) { a = new Anim(el); anims.set(el, a); } a.sync(); return a; }
+  function pageStep(el) {
+    var h = el === docEl() ? innerHeight : el.clientHeight;
+    return Math.max(h * PAGE_MIN_FRACTION, h - PAGE_OVERLAP);
+  }
+
+  var heldKey = null, heldAnim = null;
+  function releaseHeld() { if (heldAnim) heldAnim.release(); heldKey = heldAnim = null; }
+
+  addEventListener('keydown', function (e) {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey) return;
+    var k = e.key, cmdArrow = e.metaKey && (k === 'ArrowUp' || k === 'ArrowDown');
+    if (e.metaKey && !cmdArrow) return;
+    if (!/^( |ArrowUp|ArrowDown|PageUp|PageDown|Home|End)$/.test(k)) return;
+    var act = document.activeElement;
+    if (ownsKeys(act)) return;
+    if (k === ' ' && spaceActivates(act)) return;
+    if ((k === 'ArrowUp' || k === 'ArrowDown') && e.shiftKey && !cmdArrow) return;   // leave selection alone
+
+    var el = pickScroller(); if (!el) return;
+    e.preventDefault();
+    var edge = cmdArrow || k === 'Home' || k === 'End';
+    if (!edge && (e.repeat || heldKey)) return;                // WebKit ignores repeats and other keys while one is held
+    var a = anim(el), page = pageStep(el);
+
+    if (reduce && reduce.matches) {                       // same steps, no animation
+      a.stop();
+      var dy = k === 'ArrowDown' ? LINE : k === 'ArrowUp' ? -LINE :
+               (k === ' ' && !e.shiftKey) || k === 'PageDown' ? page : page * -1;
+      if (k === 'Home' || (cmdArrow && k === 'ArrowUp')) el.scrollTop = 0;
+      else if (k === 'End' || (cmdArrow && k === 'ArrowDown')) el.scrollTop = el.scrollHeight;
+      else el.scrollTop += dy;
+      return;
+    }
+
+    if (edge) {
+      a.to(k === 'Home' || k === 'ArrowUp' ? 0 : a.max());
+    } else if (k === 'ArrowUp' || k === 'ArrowDown') {
+      heldKey = k; heldAnim = a; a.hold(k === 'ArrowDown' ? 1 : -1, LINE);
+    } else {
+      heldKey = k; heldAnim = a;
+      a.hold((k === ' ' && !e.shiftKey) || k === 'PageDown' ? 1 : -1, page);
+    }
+  });
+  addEventListener('keyup', function (e) { if (e.key === heldKey) releaseHeld(); });
+  addEventListener('blur', releaseHeld);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) releaseHeld(); });
+  /* a wheel/trackpad scroll takes over from a gliding key scroll */
+  addEventListener('wheel', function (e) {
+    var el = scrollerFrom(e.target), a = el && anims.get(el);
+    if (a && a.raf && !a.held) a.stop();
+  }, { passive: true });
+
+  window.SmoothScroll = {
+    /* programmatic glide, e.g. SmoothScroll.to(pane, 0) to send a pane home */
+    to: function (el, y) { anim(el || docEl()).to(y); },
+    by: function (el, dy) { var a = anim(el || docEl()); a.to(function (b) { return b + dy; }); }
+  };
+})();
+</script>
+</body>
+</html>
