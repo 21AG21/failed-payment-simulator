@@ -35,7 +35,8 @@ module.exports = async function handler(req, res) {
   params.set('currency', 'usd');
   params.set('payment_method', pm);
   params.set('confirm', 'true');
-  params.append('payment_method_types[]', 'card');
+  params.set('automatic_payment_methods[enabled]', 'true');
+  params.set('automatic_payment_methods[allow_redirects]', 'never');
   params.set('description', 'Failed payment simulator (test mode)');
 
   let data;
