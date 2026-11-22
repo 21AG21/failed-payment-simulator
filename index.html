@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-layout="split">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -233,7 +233,6 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
 
 /* ── page ─────────────────────────────────────────────────────────────── */
 [hidden]{ display:none !important; }
-.pane-hide{ margin-bottom:20px; }
 .pane-l .row{ background:none; border-top:0; border-left:0; border-right:0; border-radius:0; text-align:left; }
 .foot{ margin-top:48px; font-size:13px; line-height:1.5; color:var(--ink-soft); }
 .foot + .foot{ margin-top:12px; }
@@ -262,18 +261,25 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
   border-top:1px solid var(--hair-soft); font-size:16px; line-height:1.4; }
 .log .t, .log .i{ color:var(--ink-soft); }
 .log .i{ grid-column:2 / -1; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; overflow-wrap:anywhere; }
+
+/* the menu is always open; on a phone it sits above the page */
+@media (max-width:700px){
+  html, body{ height:auto; overflow:visible; }
+  #app{ flex-direction:column; height:auto; min-height:100dvh; }
+  .pane-l{ flex:none; height:auto; overflow:visible; border-right:0; border-bottom:1px solid var(--hair-soft); padding:24px 20px; }
+  .pane-r{ height:auto; overflow:visible; }
+  .pane-r .body{ padding:32px 20px 80px; }
+  .foot{ margin-top:20px; }
+}
 </style>
 </head>
 <body>
 <div id="app">
   <nav class="pane-l">
-    <button class="pane-hide" type="button"><span class="hide">Hide</span><span class="keep">Keep open</span><kbd>`</kbd></button>
     <div id="rows"></div>
     <p class="foot"><a class="lnk" href="strategy.html">Strategy simulator</a></p>
-    <p class="foot">Stripe test mode. No real money moves. A learning project, not affiliated with Subcraft.</p>
   </nav>
   <main class="pane-r">
-    <a class="menu-hint" href="#">Menu<kbd>`</kbd></a>
     <div class="body">
       <h1 class="hero" id="hero"></h1>
       <div class="cells">
@@ -306,7 +312,6 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
   </main>
 </div>
 
-<script>if (innerWidth < 900) document.documentElement.setAttribute('data-layout', 'single');</script>
 <script>
 (function () {
   'use strict';
@@ -529,7 +534,7 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
   var html = document.documentElement;
   var KEY = 'minimono:pane-hidden';
   var hidden = false;
-  try { hidden = localStorage.getItem(KEY) === '1'; } catch (e) {}
+  
 
   /* 1. Two panes or one ---------------------------------------------------- */
   function isFull() {
@@ -554,6 +559,7 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
     }
   }
   function setHidden(v) {
+    return;
     hidden = v;
     try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {}
     close(true);

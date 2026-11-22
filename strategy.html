@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-layout="split">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -232,7 +232,6 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
 
 
 /* ── page ─────────────────────────────────────────────────────────────── */
-.pane-hide{ margin-bottom:20px; }
 .pane-l .row{ background:none; border-top:0; border-left:0; border-right:0; border-radius:0; text-align:left; }
 .foot{ margin-top:48px; font-size:13px; line-height:1.5; color:var(--ink-soft); }
 
@@ -274,11 +273,19 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
 .cb.on{ background:var(--ink); }
 .cb:active{ opacity:.6; }
 
-.rules{ display:flex; flex-direction:column; gap:14px; }
-.rules p{ margin:0; }
 
 @media (max-width:700px){
   .sched-in{ min-width:520px; }
+}
+
+/* the menu is always open; on a phone it sits above the page */
+@media (max-width:700px){
+  html, body{ height:auto; overflow:visible; }
+  #app{ flex-direction:column; height:auto; min-height:100dvh; }
+  .pane-l{ flex:none; height:auto; overflow:visible; border-right:0; border-bottom:1px solid var(--hair-soft); padding:24px 20px; }
+  .pane-r{ height:auto; overflow:visible; }
+  .pane-r .body{ padding:32px 20px 80px; }
+  .foot{ margin-top:20px; }
 }
 .foot + .foot{ margin-top:12px; }
 .lnk{ text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; }
@@ -287,13 +294,10 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
 <body>
 <div id="app">
   <nav class="pane-l">
-    <button class="pane-hide" type="button"><span class="hide">Hide</span><span class="keep">Keep open</span><kbd>`</kbd></button>
     <div id="rows"></div>
     <p class="foot"><a class="lnk" href="./">Live Stripe test</a></p>
-    <p class="foot">A learning project with made-up rules, not real bank data. Not affiliated with Subcraft.</p>
   </nav>
   <main class="pane-r">
-    <a class="menu-hint" href="#">Menu<kbd>`</kbd></a>
     <div class="body">
       <div class="top">
         <span class="label">Recovered</span>
@@ -311,15 +315,10 @@ mjx-container[jax="SVG"]:not([display="true"]){ margin:0 .08em; }
         <div class="sched"><div class="sched-in" id="sched"></div></div>
       </section>
 
-      <section class="sec">
-        <h2 class="h2">The rules</h2>
-        <div class="rules text" id="rules"></div>
-      </section>
     </div>
   </main>
 </div>
 
-<script>if (innerWidth < 900) document.documentElement.setAttribute('data-layout', 'single');</script>
 <script>/* Failed-payment simulator engine. Pure functions, no DOM. */
 var SIM = (function () {
   'use strict';
@@ -628,18 +627,6 @@ if (typeof module !== 'undefined') module.exports = SIM;
   }
   function paintAll() { R.forEach(function (re) { ['retry', 'email'].forEach(function (kind) { for (var k = 0; k < COLS; k++) paintCell(re.id, kind, k); }); }); }
 
-  /* ── the rules, in plain words ──────────────────────────────────────── */
-  var RULES = [
-    'These are made-up rules, not real bank data and not how Subcraft works. The point is the trade-offs.',
-    'There are ' + num(SIM.N) + ' failed payments worth ' + money(SIM.totalValue) + ' a month, the same customers every run.',
-    'Insufficient funds: each customer gets paid on a random day in the first 12. A retry after that day works 70% of the time. Before it, almost never.',
-    'Bank says no: 45% of these are soft, and a retry works 30% of the time. The rest never work by retry. Network errors almost always work on a retry. Expired, lost and blocked cards never do.',
-    'Retries less than 2 days apart have half the odds. After 4 retries, the odds drop by 70%. A retry in the first day only helps network errors.',
-    'The first email gets a new card from about 30% of customers who can fix their card. Later emails get less. After 3 emails, each extra one makes customers cancel.'
-  ];
-  var rulesHost = document.getElementById('rules');
-  RULES.forEach(function (t) { rulesHost.appendChild(el('p', null, t)); });
-
   /* ── results: only text and attributes change ───────────────────────── */
   function update() {
     var r = SIM.run(plan);
@@ -683,7 +670,7 @@ if (typeof module !== 'undefined') module.exports = SIM;
   var html = document.documentElement;
   var KEY = 'minimono:pane-hidden';
   var hidden = false;
-  try { hidden = localStorage.getItem(KEY) === '1'; } catch (e) {}
+  
 
   /* 1. Two panes or one ---------------------------------------------------- */
   function isFull() {
@@ -708,6 +695,7 @@ if (typeof module !== 'undefined') module.exports = SIM;
     }
   }
   function setHidden(v) {
+    return;
     hidden = v;
     try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {}
     close(true);
